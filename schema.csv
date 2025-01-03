@@ -1,0 +1,3 @@
+db_table,db_column,data_xml_path,id_xml_path,id_attr
+dbo.books,author,book/author,book,id
+dbo.books,genre,book/genre,book,id
