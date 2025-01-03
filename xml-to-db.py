@@ -1,65 +1,101 @@
 import xml.etree.ElementTree as ET
 import pyodbc
+import csv
+
+import os
+import sys
+
+from typing import TypedDict, List
 
 # Conf
-file_path = "example.xml"  # Percorso del file XML
+file_name = sys.argv[1]  # Percorso del file XML
 connection_string = """ Driver={ODBC Driver 17 for SQL Server};
                         Server=DESKTOP-CGCL2TS;
                         Database=xmlToDb;
                         Trusted_connection=no;
                         UID=user;
                         PWD=pass"""
-table_name = "dbo.Books"  # Nome della tabella nel database
 
-def parse_and_insert_xml(file_path, connection_string, table_name):
-    """
-    Legge un file XML e inserisce i dati in un database MSSQL.
-    :param file_path: Percorso del file XML
-    :param connection_string: Stringa di connessione MSSQL
-    :param table_name: Nome della tabella dove inserire i dati
-    """
-    try:
-        # Connessione al database
-        conn = pyodbc.connect(connection_string)
-        cursor = conn.cursor()
+class DatabaseMappedXML(TypedDict):
+    db_table: str
+    db_column: str
+    data_xml_path: str
+    id_xml_path: str
+    id_attr: str
 
+class DatabaseMappedData(TypedDict):
+    db_table: str
+    db_column: str
+    data: str
+    db_id: str
+
+def get_schema()-> List[DatabaseMappedXML]:
+    schema_dict_list: List[DatabaseMappedXML] = list()
+
+    with open('schema.csv', newline='') as csv_file:
+        csv_reader = csv.DictReader(csv_file, delimiter=',', quotechar='|')
+        row: DatabaseMappedXML
+        for row in csv_reader:
+            schema_dict_list.append({
+                'data_xml_path' : row['data_xml_path'],
+                'db_table' : row['db_table'],
+                'db_column' : row['db_column'],
+                'id_xml_path': row['id_xml_path'],
+                'id_attr': row['id_attr']
+            })
+
+    return schema_dict_list
+            
+def parse_xml_to_data(schema_dict_list: List[DatabaseMappedXML]) -> List[DatabaseMappedData]:
+    dict_list: List[DatabaseMappedData] = list()
+
+    item: DatabaseMappedXML
+    for item in schema_dict_list:
         # Parsing del file XML
-        tree = ET.parse(file_path)
+        tree = ET.parse(file_name)
         root = tree.getroot()
+
+        dict_list.append({
+            'data': root.find(item['data_xml_path']).text,
+            'db_table': item['db_table'],
+            'db_column': item['db_column'],
+            'db_id': root.find(item['id_xml_path']).attrib.get(item['id_attr'], None),
+        })
+
+    return dict_list
+
+
+def insert_data_to_db(dict_lst: List[DatabaseMappedData]):
+    # Database Connection
+    conn = pyodbc.connect(connection_string)
+    cursor = conn.cursor()
+
+    for item in dict_lst:
+        update_query =  f"""
+                        UPDATE {item['db_table']}
+                        SET {item['db_column']} = ?
+                        WHERE id = ?
+                        """
         
-        print(f"Inserendo dati nella tabella '{table_name}'...")
+        params = [item['data'], item['db_id'], ]
+        cursor.execute(update_query, *params)
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+def main():
+    try:
+        schema = get_schema()
+        data_schema = parse_xml_to_data(schema)
+        insert_data_to_db(data_schema)
+        os.replace(file_name, f"./processed/{file_name}")
+        return f"{file_name} successfully parsed"
+    except:
+        os.replace(file_name, f"./error/{file_name}")
+        return "error on parsing"
         
-        # Itera sui nodi XML e inserisce i dati nel database
-        for child in root:
-            # Estrai i dati dagli elementi XML
-            id_value = child.attrib.get("id", None)
-            author = child.find("author").text if child.find("author") is not None else None
-            title = child.find("title").text if child.find("title") is not None else None
-            genre = child.find("genre").text if child.find("genre") is not None else None
-            price = child.find("price").text if child.find("price") is not None else None
-            publish_date = child.find("publish_date").text if child.find("publish_date") is not None else None
 
-            # Inserisce i dati nel database
-            insert_query = f"""
-            INSERT INTO {table_name} (id, author, title, genre, price, publish_date)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """
-            cursor.execute(insert_query, (id_value, author, title, genre, price, publish_date))
-
-        # Commit delle modifiche
-        conn.commit()
-        print("Dati inseriti con successo!")
-    except ET.ParseError as e:
-        print(f"Errore di parsing XML: {e}")
-    except pyodbc.Error as e:
-        print(f"Errore di database: {e}")
-    except Exception as e:
-        print(f"Errore sconosciuto: {e}")
-    finally:
-        # Chiudi la connessione al database
-        cursor.close()
-        conn.close()
-
-
-# Esegui la funzione
-parse_and_insert_xml(file_path, connection_string, table_name)
+sys.stdout.write(main())
+sys.stdout.flush()
+sys.exit(0)
