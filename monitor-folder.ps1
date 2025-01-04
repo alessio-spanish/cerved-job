@@ -1,7 +1,7 @@
 ### SET FOLDER TO WATCH + FILES TO WATCH + SUBFOLDERS YES/NO
     $watcher = New-Object System.IO.FileSystemWatcher
     $watcher.Path = ".\"
-    $watcher.Filter = "*.*"
+    $watcher.Filter = "*.xml"
     $watcher.EnableRaisingEvents = $true  
 
 ### DEFINE ACTIONS AFTER AN EVENT IS DETECTED
